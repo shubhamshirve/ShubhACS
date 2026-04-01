@@ -299,6 +299,10 @@ export default function DeviceDetail() {
               )}
 
               <div>
+                <label className={labelCls}>Service Name <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <input className={inputCls} placeholder="e.g. BSNL Broadband, Airtel Fiber" value={wanConfig.service_name || ""} onChange={(e) => setWanConfig({ ...wanConfig, service_name: e.target.value })} disabled={user?.role === "staff"} data-testid="wan-service-name" />
+              </div>
+              <div>
                 <label className={labelCls}>Primary DNS</label>
                 <input className={inputCls} value={wanConfig.dns_primary} onChange={(e) => setWanConfig({ ...wanConfig, dns_primary: e.target.value })} disabled={user?.role === "staff"} />
               </div>

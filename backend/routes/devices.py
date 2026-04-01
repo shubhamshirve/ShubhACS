@@ -27,6 +27,7 @@ class WanConfig(BaseModel):
     dns_secondary: str = "8.8.4.4"
     pppoe_username: str = ""
     pppoe_password: str = ""
+    service_name: str = ""
     vlan_id: Optional[int] = None
     mtu: int = 1500
 
