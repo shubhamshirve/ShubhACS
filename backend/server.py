@@ -1,89 +1,170 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
+from database import init_db, get_db
+from auth_utils import hash_password, verify_password
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+from routes.auth import router as auth_router
+from routes.operators import router as operators_router
+from routes.users import router as users_router
+from routes.devices import router as devices_router
+from routes.diagnostics import router as diagnostics_router
+from routes.settings import router as settings_router
+from routes.router_models import router as router_models_router
+from routes.stats import router as stats_router
+from routes.acs import router as acs_router
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
-
-
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
+app = FastAPI(title="ACS Management Server - India", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[
+        os.environ.get("FRONTEND_URL", "http://localhost:3000"),
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+API_PREFIX = "/api"
+app.include_router(auth_router, prefix=API_PREFIX)
+app.include_router(operators_router, prefix=API_PREFIX)
+app.include_router(users_router, prefix=API_PREFIX)
+app.include_router(devices_router, prefix=API_PREFIX)
+app.include_router(diagnostics_router, prefix=API_PREFIX)
+app.include_router(settings_router, prefix=API_PREFIX)
+app.include_router(router_models_router, prefix=API_PREFIX)
+app.include_router(stats_router, prefix=API_PREFIX)
+app.include_router(acs_router, prefix=API_PREFIX)
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "service": "ACS Management Server"}
+
+
+@app.on_event("startup")
+async def startup():
+    await init_db()
+    db = get_db()
+    await seed_data(db)
+    await create_indexes(db)
+    logger.info("ACS Server started successfully")
+
+
+async def seed_data(db):
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@acsserver.com")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@123")
+    existing = await db.users.find_one({"email": admin_email})
+    if existing is None:
+        await db.users.insert_one({
+            "email": admin_email,
+            "password_hash": hash_password(admin_password),
+            "name": "Super Admin",
+            "role": "super_admin",
+            "operator_id": None,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Super admin seeded: {admin_email}")
+    elif not verify_password(admin_password, existing["password_hash"]):
+        await db.users.update_one(
+            {"email": admin_email},
+            {"$set": {"password_hash": hash_password(admin_password)}}
+        )
+
+    existing_settings = await db.settings.find_one({"_id": "global"})
+    if not existing_settings:
+        backend_url = os.environ.get("FRONTEND_URL", "https://router-acs-hub.preview.emergentagent.com")
+        await db.settings.insert_one({
+            "_id": "global",
+            "ai_enabled": False,
+            "gemini_api_key": "",
+            "speed_test_enabled": True,
+            "diagnostics_enabled": True,
+            "tr069_enabled": True,
+            "tr369_enabled": True,
+            "acs_url": f"{backend_url}/api/acs/cwmp",
+            "cwmp_username": "acs",
+            "cwmp_password": "acs123",
+            "inform_interval": 300,
+        })
+
+    count = await db.router_models.count_documents({})
+    if count == 0:
+        sample_models = [
+            {"brand": "Huawei", "model": "HG8245H", "isps": ["BSNL", "MTNL"], "protocols": ["TR-069"], "chipset": "HiSilicon Hi1151V100", "category": "GPON ONT", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "Huawei", "model": "EG8145V5", "isps": ["BSNL", "MTNL", "Generic"], "protocols": ["TR-069", "TR-369"], "chipset": "HiSilicon SD5115T", "category": "GPON ONT", "ports": {"lan": 4, "usb": 1, "phone": 1}, "is_active": True},
+            {"brand": "ZTE", "model": "F660", "isps": ["BSNL", "MTNL"], "protocols": ["TR-069"], "chipset": "ZTE ZX279127", "category": "GPON ONT", "ports": {"lan": 4}, "is_active": True},
+            {"brand": "ZTE", "model": "F670L", "isps": ["BSNL", "ACT Fibernet"], "protocols": ["TR-069", "TR-369"], "chipset": "ZTE ZX279128S", "category": "GPON ONT", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "Nokia", "model": "G-240G-A", "isps": ["Airtel"], "protocols": ["TR-069", "TR-369"], "chipset": "Broadcom BCM68360", "category": "GPON ONT", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "Nokia", "model": "G-010S-P", "isps": ["Airtel", "ACT Fibernet"], "protocols": ["TR-069"], "chipset": "Broadcom BCM68620", "category": "SFP ONT", "ports": {"sfp": 1}, "is_active": True},
+            {"brand": "Technicolor", "model": "TC8717T", "isps": ["Airtel"], "protocols": ["TR-069"], "chipset": "Broadcom BCM3385", "category": "VDSL2 Router", "ports": {"lan": 4, "usb": 1, "phone": 2}, "is_active": True},
+            {"brand": "Sagemcom", "model": "F@ST 2864", "isps": ["Airtel", "ACT Fibernet"], "protocols": ["TR-069"], "chipset": "Broadcom BCM63168", "category": "ADSL2+ Router", "ports": {"lan": 4, "usb": 1, "adsl": 1}, "is_active": True},
+            {"brand": "D-Link", "model": "DWR-932", "isps": ["Jio", "Generic"], "protocols": ["TR-069"], "chipset": "Qualcomm MDM9215", "category": "4G LTE Router", "ports": {"lan": 1, "usb": 1}, "is_active": True},
+            {"brand": "TP-Link", "model": "TD-W9970", "isps": ["BSNL", "Generic"], "protocols": ["TR-069"], "chipset": "MediaTek MT7510", "category": "VDSL2 Router", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "TP-Link", "model": "Archer VR900", "isps": ["Generic", "Airtel"], "protocols": ["TR-069", "TR-369"], "chipset": "MediaTek MT7621", "category": "VDSL2 AC Router", "ports": {"lan": 4, "usb": 2}, "is_active": True},
+            {"brand": "Netgear", "model": "DGN2200", "isps": ["Generic"], "protocols": ["TR-069"], "chipset": "Broadcom BCM6362", "category": "ADSL2+ Router", "ports": {"lan": 4}, "is_active": True},
+            {"brand": "UTStarcom", "model": "AN5506-04-F", "isps": ["BSNL"], "protocols": ["TR-069"], "chipset": "EcoNet EN7512", "category": "GPON ONT", "ports": {"lan": 4, "phone": 2}, "is_active": True},
+            {"brand": "Arcadyan", "model": "VR9517", "isps": ["ACT Fibernet"], "protocols": ["TR-069", "TR-369"], "chipset": "MediaTek MT7621S", "category": "Fiber Router", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "Syrotech", "model": "SY-GPON-1110-WDONT", "isps": ["BSNL", "MTNL", "Generic"], "protocols": ["TR-069"], "chipset": "Realtek RTL9607C", "category": "GPON ONT", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+            {"brand": "Tenda", "model": "HG9", "isps": ["Generic", "ACT Fibernet"], "protocols": ["TR-069"], "chipset": "MediaTek MT7620A", "category": "GPON ONT", "ports": {"lan": 4}, "is_active": True},
+            {"brand": "ASUS", "model": "DSL-AC68U", "isps": ["Generic"], "protocols": ["TR-069", "TR-369"], "chipset": "Broadcom BCM63138", "category": "VDSL2 AC Router", "ports": {"lan": 4, "usb": 2}, "is_active": True},
+            {"brand": "Mikrotik", "model": "RB951Ui-2nD", "isps": ["Generic"], "protocols": ["TR-069"], "chipset": "Atheros AR9331", "category": "Wireless Router", "ports": {"lan": 4, "usb": 1}, "is_active": True},
+        ]
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for m in sample_models:
+            m["created_at"] = now_iso
+            m["notes"] = ""
+        await db.router_models.insert_many(sample_models)
+        logger.info(f"Seeded {len(sample_models)} router models")
+
+    import os as _os
+    _os.makedirs("/app/memory", exist_ok=True)
+    with open("/app/memory/test_credentials.md", "w") as f:
+        f.write(f"""# ACS Server Test Credentials
+
+## Super Admin
+- Email: {admin_email}
+- Password: {admin_password}
+- Role: super_admin
+
+## API Endpoints
+- Login: POST /api/auth/login
+- Me: GET /api/auth/me
+- Logout: POST /api/auth/logout
+- Devices: GET /api/devices
+- Operators: GET /api/operators
+- Settings: GET /api/settings
+- Stats: GET /api/stats
+- ACS CWMP: POST /api/acs/cwmp
+- ACS USP: POST /api/acs/usp/register
+""")
+
+
+async def create_indexes(db):
+    await db.users.create_index("email", unique=True)
+    await db.devices.create_index("serial_number", unique=True, sparse=True)
+    await db.devices.create_index("operator_id")
+    await db.devices.create_index("status")
+    await db.diagnostics.create_index("device_id")
+    await db.diagnostics.create_index("created_at")
+    await db.operators.create_index("code", unique=True)
+
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def shutdown():
+    from database import _client
+    if _client:
+        _client.close()
