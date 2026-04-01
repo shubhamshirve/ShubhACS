@@ -1,0 +1,87 @@
+{
+  "theme": "Light Theme",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authoritative, Precise, Reliable, Technical Clarity",
+  "fonts": {
+    "headings": "Chivo",
+    "body": "IBM Plex Sans",
+    "mono": "JetBrains Mono",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-sm",
+      "labels": "text-xs uppercase tracking-[0.2em] font-semibold text-muted-foreground",
+      "data_values": "font-mono text-base font-semibold"
+    }
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "foreground": "#0A0B0D",
+    "muted": "#F1F3F5",
+    "muted_foreground": "#687076",
+    "border": "#E6E8EB",
+    "primary": "#002FA7",
+    "primary_foreground": "#FFFFFF",
+    "accent_red": "#E52B20",
+    "accent_yellow": "#FFC800",
+    "accent_green": "#00A153"
+  },
+  "surface_strategy": "Grid Borders (The 'Technical' Look)",
+  "components": {
+    "cards": "Flat background, 1px subtle border, 0px border-radius (sharp corners), no shadow. Hover: slight lift and shadow-sm.",
+    "buttons": "Sharp corners, high contrast. Primary buttons use International Klein Blue. Padding: px-6 py-2.",
+    "tables": "Dense rows, 1px bottom borders, hover states on rows. Header rows use overline label typography (uppercase, tracked out).",
+    "navigation": "Sidebar for dashboard with 1px right border. Solid background, active states marked by 2px left border in Primary color.",
+    "forms": "Inputs should have sharp borders. Use Shadcn Input, Select, Checkbox but override radii to 0. Focus rings must be tight and use Primary Blue."
+  },
+  "layout_spacing": {
+    "grid_type": "MODE B: THE 'CONTROL ROOM' GRID",
+    "gap": "gap-4 md:gap-6",
+    "padding_internal": "p-4 md:p-6 for cards and sections",
+    "alignment": "Left-align all data and labels for quick scanning. Right-align numerical values in tables."
+  },
+  "motion": {
+    "hover": "Instant background color shifts, no slow fades. It must feel like a tactical terminal.",
+    "transitions": "transition-colors duration-150 ease-in-out"
+  },
+  "icons_and_assets": {
+    "icon_library": "@phosphor-icons/react",
+    "icon_style": "Regular or Bold weight, technical precision.",
+    "installation_command": "yarn add @phosphor-icons/react",
+    "image_urls": [
+      {
+        "url": "https://images.pexels.com/photos/32698507/pexels-photo-32698507.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "hero_login",
+        "description": "Sleek WiFi 6 router on wooden desk. Use as a half-page image on the login screen with a subtle blue tint overlay."
+      },
+      {
+        "url": "https://images.pexels.com/photos/6466141/pexels-photo-6466141.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "background_abstract",
+        "description": "High-tech server rack in a secure data center. Use with low opacity (10%) as a subtle background for the AI diagnostics panel or empty states."
+      }
+    ]
+  },
+  "page_specific_instructions": {
+    "login_page": "Split layout. Left: Crisp form with 'Chivo' headings. Right: Hero image (WiFi 6 router) with a subtle blue tint overlay.",
+    "super_admin_dashboard": "Control room grid. Top row: 4 KPI summary cards (col-span-1). Middle row: Main bandwidth/traffic chart (col-span-3) + active alerts list (col-span-1).",
+    "device_detail_page": "Bento layout. Left column (col-span-8): WAN/WiFi Config Editor (forms). Right column (col-span-4): Real-time Status, AI Diagnostics toggle, and Speed Test mini-panel.",
+    "ai_diagnostics_panel": "Use JetBrains Mono for the terminal-style output of Gemini 3 Flash. Highlight issues in Signal Red and suggestions in Warning Yellow or Primary Blue. Give it a slightly darker background (10% grey) to separate from the main UI.",
+    "global_settings": "Forms must use Shadcn components heavily modified for sharp corners. AI toggle should be a crisp square switch, not a rounded pill."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure APCA contrast ratios. Do not use pure gray; tint grays slightly with blue (#F1F3F5).",
+    "testing_attributes": "All interactive elements MUST include data-testid attributes (e.g., data-testid='login-submit-button', data-testid='ai-toggle-switch')."
+  },
+  "instructions_to_main_agent": [
+    "Use Pure HTML/Tailwind for structural layout (grid borders), avoid wrapping everything in Shadcn 'Card' components to maintain the raw technical look.",
+    "Use Shadcn for complex interactions (Tables, Dropdowns, Dialogs, Select).",
+    "Update tailwind.config.js to set border-radius values to 0px for a sharp, brutalist tech feel.",
+    "Add 'Chivo', 'IBM Plex Sans', and 'JetBrains Mono' to google fonts import in index.css and map them in tailwind.config.js.",
+    "Follow the 'Control Room Grid' for dashboard pages. All grid items must be direct children.",
+    "Do NOT center align text in dense areas; always left-align for scanning.",
+    "In index.css, update CSS variables: --primary to the designated blue (hsl 223 100% 33%), --radius to 0rem.",
+    "Ensure the application strictly follows the light theme, modifying the root CSS variables in index.css to match the Swiss & High-Contrast archetype."
+  ]
+}
