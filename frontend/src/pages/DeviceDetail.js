@@ -14,7 +14,9 @@ import {
   Play,
   ClockCountdown,
   Waveform,
+  PlugsConnected,
 } from "@phosphor-icons/react";
+import ProvisioningTab from "@/components/ProvisioningTab";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -36,6 +38,7 @@ const StatusBadge = ({ status }) => {
 
 const TABS = [
   { id: "overview", label: "Overview", icon: ChartBar },
+  { id: "provisioning", label: "Provisioning", icon: PlugsConnected },
   { id: "wan", label: "WAN Config", icon: Globe },
   { id: "wifi", label: "WiFi Config", icon: WifiHigh },
   { id: "diagnostics", label: "Diagnostics", icon: Network },
@@ -135,6 +138,14 @@ export default function DeviceDetail() {
   }
   if (!device) return <div className="p-8 text-center text-gray-500">Device not found</div>;
 
+  const acsUrl = settings.acs_url || (window.location.origin + "/api/acs/cwmp");
+  const uspUrl = (settings.acs_url
+    ? settings.acs_url.replace("/api/acs/cwmp", "/api/acs/usp/register")
+    : window.location.origin + "/api/acs/usp/register");
+  const cwmpUser = settings.cwmp_username || "acs";
+  const cwmpPass = settings.cwmp_password || "acs123";
+  const informInterval = settings.inform_interval || 300;
+
   return (
     <div className="fade-in">
       {/* Header */}
@@ -204,23 +215,35 @@ export default function DeviceDetail() {
                 <p className="text-sm text-gray-700 font-body">{device.notes}</p>
               </div>
             )}
-            {/* ACS Info */}
-            <div className="border border-[#002FA7]/20 bg-blue-50/50 p-4 md:col-span-2 lg:col-span-3">
-              <p className="text-[10px] uppercase tracking-[0.15em] font-semibold text-[#002FA7] mb-2 font-body">ACS Configuration</p>
-              <p className="text-xs text-gray-600 font-body mb-1">
-                <span className="font-semibold">CWMP ACS URL:</span>{" "}
-                <span className="font-mono">{settings.acs_url || `${process.env.REACT_APP_BACKEND_URL}/api/acs/cwmp`}</span>
-              </p>
-              <p className="text-xs text-gray-600 font-body mb-1">
-                <span className="font-semibold">USP Endpoint:</span>{" "}
-                <span className="font-mono">{process.env.REACT_APP_BACKEND_URL}/api/acs/usp/register</span>
-              </p>
-              <p className="text-xs text-gray-600 font-body">
-                <span className="font-semibold">Inform Interval:</span>{" "}
-                <span className="font-mono">{settings.inform_interval || 300}s</span>
-              </p>
+            {/* ACS Quick Reference */}
+            <div className="border border-[#002FA7]/20 bg-blue-50/30 p-4 md:col-span-2 lg:col-span-3 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] font-semibold text-[#002FA7] mb-1 font-body">ACS Server</p>
+                <p className="text-xs font-mono text-gray-700">{acsUrl}</p>
+              </div>
+              <button
+                className="flex items-center gap-1.5 text-xs font-semibold text-[#002FA7] border border-[#002FA7]/30 px-3 py-1.5 hover:bg-blue-50 transition-colors font-body whitespace-nowrap"
+                onClick={() => setActiveTab("provisioning")}
+                data-testid="view-provisioning-btn"
+              >
+                <PlugsConnected size={13} />
+                View Provisioning Guide
+              </button>
             </div>
           </div>
+        )}
+
+        {/* PROVISIONING TAB */}
+        {activeTab === "provisioning" && (
+          <ProvisioningTab
+            device={device}
+            acsUrl={acsUrl}
+            uspUrl={uspUrl}
+            cwmpUser={cwmpUser}
+            cwmpPass={cwmpPass}
+            informInterval={informInterval}
+            settings={settings}
+          />
         )}
 
         {/* WAN CONFIG TAB */}

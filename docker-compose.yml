@@ -1,0 +1,68 @@
+version: '3.9'
+
+services:
+  # ── MongoDB ──────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: acs_mongo
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: ${DB_NAME:-acs_server_db}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: acs_backend
+    ports:
+      - "${BACKEND_PORT:-8001}:8001"
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      DB_NAME: ${DB_NAME:-acs_server_db}
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production-use-a-long-random-string}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@acsserver.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
+      FRONTEND_URL: ${ACS_PUBLIC_URL:-http://localhost}
+      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── React Frontend (nginx) ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Empty string = relative URLs; nginx proxies /api → backend
+        REACT_APP_BACKEND_URL: ""
+    container_name: acs_frontend
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    name: acs_mongo_data

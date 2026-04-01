@@ -77,5 +77,6 @@ async def get_public_settings(current_user: dict = Depends(get_current_user)):
         "tr369_enabled": settings.get("tr369_enabled", True),
         "acs_url": settings.get("acs_url", ""),
         "cwmp_username": settings.get("cwmp_username", "acs"),
+        "cwmp_password": settings.get("cwmp_password", "acs123"),
         "inform_interval": settings.get("inform_interval", 300),
     }
