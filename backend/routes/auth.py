@@ -93,8 +93,7 @@ async def change_password(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_db()
-    user = await db.users.find_one({"_id": ObjectId(current_user["_id"] if "_id" in current_user else current_user["id"])})
-    uid = current_user.get("id") or current_user.get("_id")
+    uid = current_user.get("id")
     user = await db.users.find_one({"_id": ObjectId(uid)})
     if not user or not verify_password(data.current_password, user["password_hash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
