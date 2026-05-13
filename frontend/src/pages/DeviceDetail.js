@@ -91,6 +91,18 @@ export default function DeviceDetail() {
     load();
   }, [id]);
 
+  // Real-time device status polling every 30 seconds
+  useEffect(() => {
+    if (!id) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await axios.get(`${API}/devices/${id}`, { withCredentials: true });
+        setDevice(data);
+      } catch (e) {}
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [id]);
+
   const saveWan = async () => {
     setSavingWan(true);
     try {
@@ -162,6 +174,10 @@ export default function DeviceDetail() {
             <StatusBadge status={device.status} />
             <span className="text-xs font-mono bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1">
               {device.protocol?.toUpperCase()}
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-green-600 font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"></span>
+              Live
             </span>
           </div>
         </div>

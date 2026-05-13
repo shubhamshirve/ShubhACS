@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 from typing import Optional, List
 
 from database import get_db
 from auth_utils import get_current_user, require_roles
+from utils import find_by_id, new_id
 
 router = APIRouter(prefix="/router-models", tags=["router-models"])
 
@@ -67,12 +67,12 @@ async def create_router_model(
 ):
     db = get_db()
     doc = {
+        "_id": new_id(),
         **data.model_dump(),
         "created_by": current_user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = await db.router_models.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    await db.router_models.insert_one(doc)
     return serialize(doc)
 
 
@@ -83,13 +83,14 @@ async def update_router_model(
     current_user: dict = Depends(require_roles("super_admin"))
 ):
     db = get_db()
+    model = await find_by_id(db.router_models, model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Router model not found")
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.router_models.update_one({"_id": ObjectId(model_id)}, {"$set": update_data})
-    m = await db.router_models.find_one({"_id": ObjectId(model_id)})
-    if not m:
-        raise HTTPException(status_code=404, detail="Router model not found")
-    return serialize(m)
+    await db.router_models.update_one({"_id": model["_id"]}, {"$set": update_data})
+    model = await find_by_id(db.router_models, model_id)
+    return serialize(model)
 
 
 @router.delete("/{model_id}")
@@ -98,7 +99,8 @@ async def delete_router_model(
     current_user: dict = Depends(require_roles("super_admin"))
 ):
     db = get_db()
-    result = await db.router_models.delete_one({"_id": ObjectId(model_id)})
-    if result.deleted_count == 0:
+    model = await find_by_id(db.router_models, model_id)
+    if not model:
         raise HTTPException(status_code=404, detail="Router model not found")
+    await db.router_models.delete_one({"_id": model["_id"]})
     return {"message": "Router model deleted"}

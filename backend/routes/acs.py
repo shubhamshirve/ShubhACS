@@ -3,7 +3,6 @@ ACS (Auto Configuration Server) endpoint supporting TR-069 (CWMP) and TR-369 (US
 """
 from fastapi import APIRouter, Request, Response, HTTPException, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 from typing import Optional
 import xml.etree.ElementTree as ET
@@ -12,6 +11,7 @@ import re
 
 from database import get_db
 from auth_utils import get_current_user
+from utils import new_id
 
 router = APIRouter(prefix="/acs", tags=["acs"])
 logger = logging.getLogger(__name__)
@@ -118,6 +118,7 @@ async def cwmp_endpoint(request: Request):
             logger.info(f"TR-069 Inform: Updated device {serial}")
         else:
             new_device = {
+                "_id": new_id(),
                 "name": f"{device_data.get('manufacturer', 'Unknown')} {device_data.get('product_class', serial)}",
                 "serial_number": serial,
                 "manufacturer": device_data.get("manufacturer", ""),
@@ -177,6 +178,7 @@ async def usp_register(data: USPRegister):
         return {"status": "updated", "serial": data.serial_number}
     else:
         new_device = {
+            "_id": new_id(),
             "name": f"{data.manufacturer} {data.model or data.serial_number}",
             "serial_number": data.serial_number,
             "manufacturer": data.manufacturer,

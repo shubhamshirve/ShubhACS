@@ -28,6 +28,16 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Auto-refresh stats every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      axios.get(`${API}/stats`, { withCredentials: true })
+        .then((r) => setStats(r.data))
+        .catch(console.error);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   if (loading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
@@ -89,14 +99,20 @@ export default function Dashboard() {
   return (
     <div className="p-6 md:p-8 fade-in">
       {/* Header */}
-      <div className="mb-6 border-b border-[#E6E8EB] pb-5">
-        <p className="text-xs uppercase tracking-[0.2em] font-semibold text-gray-400 mb-1 font-body">
-          {user?.role === "super_admin" ? "Platform Overview" : "Operations Dashboard"}
-        </p>
-        <h1 className="text-3xl font-black text-[#0A0B0D] font-heading">Dashboard</h1>
-        {user?.operator_id && (
-          <p className="text-sm text-gray-500 mt-1 font-body">Operator: {user?.operator_name || user?.operator_id}</p>
-        )}
+      <div className="mb-6 border-b border-[#E6E8EB] pb-5 flex items-end justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] font-semibold text-gray-400 mb-1 font-body">
+            {user?.role === "super_admin" ? "Platform Overview" : "Operations Dashboard"}
+          </p>
+          <h1 className="text-3xl font-black text-[#0A0B0D] font-heading">Dashboard</h1>
+          {user?.operator_id && (
+            <p className="text-sm text-gray-500 mt-1 font-body">Operator: {user?.operator_name || user?.operator_id}</p>
+          )}
+        </div>
+        <span className="flex items-center gap-1.5 text-[10px] text-green-600 font-mono mb-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"></span>
+          Auto-refresh
+        </span>
       </div>
 
       {/* KPI Grid */}

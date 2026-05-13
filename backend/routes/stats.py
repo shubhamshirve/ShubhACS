@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
 from database import get_db
 from auth_utils import get_current_user
-from bson import ObjectId
 from datetime import datetime, timezone, timedelta
 
 router = APIRouter(prefix="/stats", tags=["stats"])

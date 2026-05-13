@@ -3,8 +3,8 @@ import jwt
 import os
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, Request, Depends
-from bson import ObjectId
 from database import get_db
+from utils import find_by_id
 
 JWT_ALGORITHM = "HS256"
 
@@ -67,7 +67,7 @@ async def get_current_user(request: Request) -> dict:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        user = await find_by_id(db.users, payload["sub"])
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         user["id"] = str(user.pop("_id"))

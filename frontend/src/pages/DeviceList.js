@@ -164,6 +164,7 @@ export default function DeviceList() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterProtocol, setFilterProtocol] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -187,6 +188,29 @@ export default function DeviceList() {
   useEffect(() => {
     fetchDevices();
   }, [fetchDevices]);
+
+  // Real-time status polling every 30 seconds (fires immediately on mount)
+  useEffect(() => {
+    const pollStatus = async () => {
+      try {
+        const { data } = await axios.get(`${API}/devices/status-updates`, { withCredentials: true });
+        const statusById = {};
+        data.forEach((d) => { statusById[d.id] = d; });
+        setDevices((prev) =>
+          prev.map((device) =>
+            statusById[device.id]
+              ? { ...device, status: statusById[device.id].status, last_seen: statusById[device.id].last_seen, ip_address: statusById[device.id].ip_address }
+              : device
+          )
+        );
+        setLastUpdated(new Date());
+      } catch (e) {}
+    };
+    // Fire immediately on mount, then every 30s
+    pollStatus();
+    const interval = setInterval(pollStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (user?.role === "super_admin") {
@@ -272,7 +296,13 @@ export default function DeviceList() {
           )}
         </div>
 
-        <div className="ml-auto text-xs text-gray-400 font-mono">
+        <div className="ml-auto flex items-center gap-3 text-xs text-gray-400 font-mono">
+          {lastUpdated && (
+            <span className="flex items-center gap-1.5 text-green-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block"></span>
+              Live
+            </span>
+          )}
           {devices.length} device{devices.length !== 1 ? "s" : ""}
         </div>
       </div>

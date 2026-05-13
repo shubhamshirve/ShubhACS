@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 from typing import Optional
 import subprocess
@@ -10,6 +9,7 @@ import os
 
 from database import get_db
 from auth_utils import get_current_user
+from utils import find_by_id, new_id
 
 router = APIRouter(prefix="/diagnostics", tags=["diagnostics"])
 
@@ -98,7 +98,7 @@ def simulate_speedtest() -> dict:
 @router.post("/{device_id}/ping")
 async def ping_device(device_id: str, current_user: dict = Depends(get_current_user)):
     db = get_db()
-    device = await db.devices.find_one({"_id": ObjectId(device_id)})
+    device = await find_by_id(db.devices, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if current_user["role"] in ["operator", "staff"] and device.get("operator_id") != current_user["operator_id"]:
@@ -111,6 +111,7 @@ async def ping_device(device_id: str, current_user: dict = Depends(get_current_u
     ip = device.get("ip_address", "")
     result = await asyncio.to_thread(run_ping, ip)
     doc = {
+        "_id": new_id(),
         "device_id": device_id,
         "type": "ping",
         "result": result,
@@ -118,11 +119,10 @@ async def ping_device(device_id: str, current_user: dict = Depends(get_current_u
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user["id"],
     }
-    ins = await db.diagnostics.insert_one(doc)
-    doc["_id"] = ins.inserted_id
+    await db.diagnostics.insert_one(doc)
     status_update = "online" if result.get("success") else "offline"
     await db.devices.update_one(
-        {"_id": ObjectId(device_id)},
+        {"_id": device["_id"]},
         {"$set": {"status": status_update, "last_seen": datetime.now(timezone.utc).isoformat()}}
     )
     return serialize(doc)
@@ -131,7 +131,7 @@ async def ping_device(device_id: str, current_user: dict = Depends(get_current_u
 @router.post("/{device_id}/traceroute")
 async def traceroute_device(device_id: str, current_user: dict = Depends(get_current_user)):
     db = get_db()
-    device = await db.devices.find_one({"_id": ObjectId(device_id)})
+    device = await find_by_id(db.devices, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if current_user["role"] in ["operator", "staff"] and device.get("operator_id") != current_user["operator_id"]:
@@ -144,6 +144,7 @@ async def traceroute_device(device_id: str, current_user: dict = Depends(get_cur
     ip = device.get("ip_address", "")
     result = await asyncio.to_thread(run_traceroute, ip)
     doc = {
+        "_id": new_id(),
         "device_id": device_id,
         "type": "traceroute",
         "result": result,
@@ -151,15 +152,14 @@ async def traceroute_device(device_id: str, current_user: dict = Depends(get_cur
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user["id"],
     }
-    ins = await db.diagnostics.insert_one(doc)
-    doc["_id"] = ins.inserted_id
+    await db.diagnostics.insert_one(doc)
     return serialize(doc)
 
 
 @router.post("/{device_id}/speedtest")
 async def speedtest_device(device_id: str, current_user: dict = Depends(get_current_user)):
     db = get_db()
-    device = await db.devices.find_one({"_id": ObjectId(device_id)})
+    device = await find_by_id(db.devices, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if current_user["role"] in ["operator", "staff"] and device.get("operator_id") != current_user["operator_id"]:
@@ -172,21 +172,21 @@ async def speedtest_device(device_id: str, current_user: dict = Depends(get_curr
     await asyncio.sleep(2)
     result = simulate_speedtest()
     doc = {
+        "_id": new_id(),
         "device_id": device_id,
         "type": "speedtest",
         "result": result,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user["id"],
     }
-    ins = await db.diagnostics.insert_one(doc)
-    doc["_id"] = ins.inserted_id
+    await db.diagnostics.insert_one(doc)
     return serialize(doc)
 
 
 @router.post("/{device_id}/ai-analyze")
 async def ai_analyze_device(device_id: str, current_user: dict = Depends(get_current_user)):
     db = get_db()
-    device = await db.devices.find_one({"_id": ObjectId(device_id)})
+    device = await find_by_id(db.devices, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if current_user["role"] in ["operator", "staff"] and device.get("operator_id") != current_user["operator_id"]:
@@ -250,14 +250,14 @@ Provide a comprehensive diagnostic analysis with actionable recommendations."""
     response = await chat.send_message(UserMessage(text=prompt))
 
     doc = {
+        "_id": new_id(),
         "device_id": device_id,
         "type": "ai_diagnostic",
         "result": {"analysis": response, "model": "gemini-3-flash-preview"},
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user["id"],
     }
-    ins = await db.diagnostics.insert_one(doc)
-    doc["_id"] = ins.inserted_id
+    await db.diagnostics.insert_one(doc)
     return serialize(doc)
 
 
@@ -269,7 +269,7 @@ async def get_diagnostic_history(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_db()
-    device = await db.devices.find_one({"_id": ObjectId(device_id)}, {"operator_id": 1})
+    device = await find_by_id(db.devices, device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     if current_user["role"] in ["operator", "staff"] and device.get("operator_id") != current_user["operator_id"]:

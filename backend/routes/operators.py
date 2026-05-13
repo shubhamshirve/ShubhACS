@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 from typing import Optional
 
 from database import get_db
 from auth_utils import get_current_user, require_roles
+from utils import find_by_id, new_id
 
 router = APIRouter(prefix="/operators", tags=["operators"])
 
@@ -51,7 +51,7 @@ async def get_operator(op_id: str, current_user: dict = Depends(get_current_user
     db = get_db()
     if current_user["role"] not in ["super_admin"] and current_user.get("operator_id") != op_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    op = await db.operators.find_one({"_id": ObjectId(op_id)})
+    op = await find_by_id(db.operators, op_id)
     if not op:
         raise HTTPException(status_code=404, detail="Operator not found")
     return serialize(op)
@@ -67,13 +67,13 @@ async def create_operator(
     if existing:
         raise HTTPException(status_code=400, detail="Operator code already exists")
     doc = {
+        "_id": new_id(),
         **data.model_dump(),
         "code": data.code.upper(),
         "created_by": current_user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = await db.operators.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    await db.operators.insert_one(doc)
     return serialize(doc)
 
 
@@ -84,13 +84,14 @@ async def update_operator(
     current_user: dict = Depends(require_roles("super_admin"))
 ):
     db = get_db()
+    op = await find_by_id(db.operators, op_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operator not found")
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if "code" in update_data:
         update_data["code"] = update_data["code"].upper()
-    await db.operators.update_one({"_id": ObjectId(op_id)}, {"$set": update_data})
-    op = await db.operators.find_one({"_id": ObjectId(op_id)})
-    if not op:
-        raise HTTPException(status_code=404, detail="Operator not found")
+    await db.operators.update_one({"_id": op["_id"]}, {"$set": update_data})
+    op = await find_by_id(db.operators, op_id)
     return serialize(op)
 
 
@@ -100,6 +101,9 @@ async def delete_operator(
     current_user: dict = Depends(require_roles("super_admin"))
 ):
     db = get_db()
+    op = await find_by_id(db.operators, op_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operator not found")
     device_count = await db.devices.count_documents({"operator_id": op_id})
     if device_count > 0:
         raise HTTPException(
@@ -107,7 +111,5 @@ async def delete_operator(
             detail=f"Cannot delete operator with {device_count} devices. Remove devices first."
         )
     await db.users.delete_many({"operator_id": op_id})
-    result = await db.operators.delete_one({"_id": ObjectId(op_id)})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Operator not found")
+    await db.operators.delete_one({"_id": op["_id"]})
     return {"message": "Operator deleted"}

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 import jwt
 
@@ -10,6 +9,7 @@ from auth_utils import (
     create_access_token, create_refresh_token,
     set_auth_cookies, get_current_user, get_jwt_secret, JWT_ALGORITHM
 )
+from utils import find_by_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -71,7 +71,7 @@ async def refresh_token(request: Request, response: Response):
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        user = await find_by_id(db.users, payload["sub"])
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         user_id = str(user["_id"])
@@ -94,11 +94,11 @@ async def change_password(
 ):
     db = get_db()
     uid = current_user.get("id")
-    user = await db.users.find_one({"_id": ObjectId(uid)})
+    user = await find_by_id(db.users, uid)
     if not user or not verify_password(data.current_password, user["password_hash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     await db.users.update_one(
-        {"_id": ObjectId(uid)},
+        {"_id": user["_id"]},
         {"$set": {"password_hash": hash_password(data.new_password)}}
     )
     return {"message": "Password updated successfully"}

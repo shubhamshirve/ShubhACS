@@ -4,6 +4,7 @@ load_dotenv()
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 import os
+import uuid
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,6 +70,7 @@ async def seed_data(db):
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
         await db.users.insert_one({
+            "_id": str(uuid.uuid4()),
             "email": admin_email,
             "password_hash": hash_password(admin_password),
             "name": "Super Admin",
@@ -125,6 +127,7 @@ async def seed_data(db):
         ]
         now_iso = datetime.now(timezone.utc).isoformat()
         for m in sample_models:
+            m["_id"] = str(uuid.uuid4())
             m["created_at"] = now_iso
             m["notes"] = ""
         await db.router_models.insert_many(sample_models)

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from bson import ObjectId
 from datetime import datetime, timezone
 from typing import Optional
 
 from database import get_db
 from auth_utils import get_current_user, require_roles, hash_password
+from utils import find_by_id, new_id
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -20,7 +20,7 @@ class UserCreate(BaseModel):
     email: str
     name: str
     password: str
-    role: str  # operator, staff
+    role: str
     operator_id: Optional[str] = None
 
 
@@ -51,7 +51,7 @@ async def list_users(current_user: dict = Depends(get_current_user)):
     for u in users:
         u = serialize(u)
         if u.get("operator_id"):
-            op = await db.operators.find_one({"_id": ObjectId(u["operator_id"])})
+            op = await find_by_id(db.operators, u["operator_id"])
             u["operator_name"] = op["name"] if op else "Unknown"
         result.append(u)
     return result
@@ -76,6 +76,7 @@ async def create_user(data: UserCreate, current_user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail="Email already exists")
 
     doc = {
+        "_id": new_id(),
         "email": email,
         "name": data.name,
         "password_hash": hash_password(data.password),
@@ -85,8 +86,7 @@ async def create_user(data: UserCreate, current_user: dict = Depends(get_current
         "created_by": current_user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = await db.users.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    await db.users.insert_one(doc)
     return serialize(doc)
 
 
@@ -97,18 +97,17 @@ async def update_user(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_db()
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    target = await find_by_id(db.users, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-
     if current_user["role"] == "operator" and target.get("operator_id") != current_user["operator_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if "email" in update_data:
         update_data["email"] = update_data["email"].lower().strip()
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    await db.users.update_one({"_id": target["_id"]}, {"$set": update_data})
+    target = await find_by_id(db.users, user_id)
     return serialize(target)
 
 
@@ -119,7 +118,7 @@ async def reset_user_password(
     current_user: dict = Depends(get_current_user)
 ):
     db = get_db()
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    target = await find_by_id(db.users, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if current_user["role"] == "operator" and target.get("operator_id") != current_user["operator_id"]:
@@ -127,7 +126,7 @@ async def reset_user_password(
     if current_user["role"] == "staff":
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     await db.users.update_one(
-        {"_id": ObjectId(user_id)},
+        {"_id": target["_id"]},
         {"$set": {"password_hash": hash_password(data.new_password)}}
     )
     return {"message": "Password reset successfully"}
@@ -138,12 +137,12 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     db = get_db()
     if current_user["role"] not in ["super_admin", "operator"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
-    target = await db.users.find_one({"_id": ObjectId(user_id)})
+    target = await find_by_id(db.users, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if current_user["role"] == "operator" and target.get("operator_id") != current_user["operator_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     if str(target["_id"]) == current_user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
-    await db.users.delete_one({"_id": ObjectId(user_id)})
+    await db.users.delete_one({"_id": target["_id"]})
     return {"message": "User deleted"}
