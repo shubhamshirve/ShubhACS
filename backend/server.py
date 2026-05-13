@@ -27,12 +27,22 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ACS Management Server - India", version="1.0.0")
 
+# Build CORS origins list — supports CORS_ORIGINS env var (comma-separated)
+_raw_cors = os.environ.get("CORS_ORIGINS", "").strip()
+if _raw_cors and _raw_cors != "*":
+    _cors_origins = [o.strip() for o in _raw_cors.split(",") if o.strip()]
+else:
+    _cors_origins = list({
+        os.environ.get("FRONTEND_URL", "http://localhost"),
+        "http://localhost",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "http://127.0.0.1:3000",
+    })
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        os.environ.get("FRONTEND_URL", "http://localhost:3000"),
-        "http://localhost:3000",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
