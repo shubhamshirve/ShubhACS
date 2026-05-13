@@ -86,7 +86,7 @@ async def seed_data(db):
 
     existing_settings = await db.settings.find_one({"_id": "global"})
     if not existing_settings:
-        backend_url = os.environ.get("FRONTEND_URL", "https://router-acs-hub.preview.emergentagent.com")
+        backend_url = os.environ.get("FRONTEND_URL", "https://analyze-app-8.preview.emergentagent.com")
         await db.settings.insert_one({
             "_id": "global",
             "ai_enabled": False,
