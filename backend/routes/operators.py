@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from typing import Optional
+import secrets as _secrets
 
 from database import get_db
 from auth_utils import get_current_user, require_roles
@@ -15,6 +16,11 @@ def serialize(doc: dict) -> dict:
     return doc
 
 
+def _gen_password() -> str:
+    """Generate a secure 12-char ACS password."""
+    return _secrets.token_urlsafe(9)   # ~12 URL-safe chars
+
+
 class OperatorCreate(BaseModel):
     name: str
     code: str
@@ -22,6 +28,8 @@ class OperatorCreate(BaseModel):
     contact_phone: str = ""
     address: str = ""
     is_active: bool = True
+    acs_username: str = ""   # auto-generated from lowercase code if blank
+    acs_password: str = ""   # auto-generated random string if blank
 
 
 class OperatorUpdate(BaseModel):
@@ -31,6 +39,8 @@ class OperatorUpdate(BaseModel):
     contact_phone: Optional[str] = None
     address: Optional[str] = None
     is_active: Optional[bool] = None
+    acs_username: Optional[str] = None
+    acs_password: Optional[str] = None
 
 
 @router.get("")
@@ -63,13 +73,29 @@ async def create_operator(
     current_user: dict = Depends(require_roles("super_admin"))
 ):
     db = get_db()
+    # Check code uniqueness
     existing = await db.operators.find_one({"code": data.code.upper()})
     if existing:
         raise HTTPException(status_code=400, detail="Operator code already exists")
+
+    # Derive ACS credentials
+    acs_username = (data.acs_username or data.code.lower()).strip().replace(" ", "-")
+    acs_password = data.acs_password.strip() or _gen_password()
+
+    # Ensure acs_username is unique
+    if await db.operators.find_one({"acs_username": acs_username}):
+        raise HTTPException(status_code=400, detail=f"ACS username '{acs_username}' is already in use. Choose a different one.")
+
     doc = {
         "_id": new_id(),
-        **data.model_dump(),
+        "name": data.name,
         "code": data.code.upper(),
+        "contact_email": data.contact_email,
+        "contact_phone": data.contact_phone,
+        "address": data.address,
+        "is_active": data.is_active,
+        "acs_username": acs_username,
+        "acs_password": acs_password,
         "created_by": current_user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -87,9 +113,18 @@ async def update_operator(
     op = await find_by_id(db.operators, op_id)
     if not op:
         raise HTTPException(status_code=404, detail="Operator not found")
+
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if "code" in update_data:
         update_data["code"] = update_data["code"].upper()
+    if "acs_username" in update_data:
+        acs_username = update_data["acs_username"].strip().replace(" ", "-")
+        # Check uniqueness (excluding current operator)
+        conflict = await db.operators.find_one({"acs_username": acs_username, "_id": {"$ne": op["_id"]}})
+        if conflict:
+            raise HTTPException(status_code=400, detail=f"ACS username '{acs_username}' is already in use.")
+        update_data["acs_username"] = acs_username
+
     await db.operators.update_one({"_id": op["_id"]}, {"$set": update_data})
     op = await find_by_id(db.operators, op_id)
     return serialize(op)

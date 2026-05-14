@@ -139,34 +139,60 @@ export default function GlobalSettings() {
           <div data-testid="acs-settings-panel" className="space-y-4">
             <Toggle field="tr069_enabled" label="TR-069 (CWMP)" desc="Accept TR-069 Inform messages from CPE devices at /api/acs/cwmp" />
             <Toggle field="tr369_enabled" label="TR-369 (USP)" desc="Accept TR-369 USP device registrations at /api/acs/usp/register" />
+
+            {/* ACS Endpoints */}
+            <div className="p-4 border border-[#E6E8EB] bg-[#FAFBFC] space-y-2">
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-gray-600 font-body">ACS Endpoints</p>
+              <div className="font-mono text-xs space-y-1">
+                <div className="flex gap-3 items-center">
+                  <span className="text-gray-400 w-20 shrink-0">TR-069</span>
+                  <span className="text-[#002FA7]">{settings?.acs_url ? `${settings.acs_url}/api/acs/cwmp` : `${window.location.origin}/api/acs/cwmp`}</span>
+                </div>
+                <div className="flex gap-3 items-center">
+                  <span className="text-gray-400 w-20 shrink-0">TR-369</span>
+                  <span className="text-[#002FA7]">{settings?.acs_url ? `${settings.acs_url}/api/acs/usp/register` : `${window.location.origin}/api/acs/usp/register`}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Multi-Operator Info */}
+            <div className="p-4 bg-blue-50 border border-blue-200 flex gap-3">
+              <div className="text-[#002FA7] text-lg shrink-0">⚙</div>
+              <div>
+                <p className="text-xs font-bold text-[#002FA7] font-body">Multi-Operator Device Auto-Assignment</p>
+                <p className="text-xs text-gray-600 font-body mt-1">
+                  Each operator gets unique <strong>ACS Username / Password</strong> credentials.
+                  Configure these in the router's CWMP settings. When the router phones home, the ACS automatically
+                  identifies the operator from the credentials and assigns the device.
+                </p>
+                <p className="text-xs text-gray-500 font-body mt-1">
+                  → Manage per-operator credentials in <strong>User Management → Operators</strong>
+                </p>
+              </div>
+            </div>
+
             <div className="pt-2">
-              <label className={lbl}>ACS Server URL (for CPE provisioning)</label>
-              <input className={inp} value={settings?.acs_url || ""} onChange={(e) => set("acs_url", e.target.value)} data-testid="acs-url-input" />
-              <p className="text-xs text-gray-400 mt-1 font-body">Configure this URL in your CPE devices as the ACS server address</p>
+              <label className={lbl}>ACS Server Base URL</label>
+              <input className={inp} value={settings?.acs_url || ""} onChange={(e) => set("acs_url", e.target.value)} data-testid="acs-url-input" placeholder={window.location.origin} />
+              <p className="text-xs text-gray-400 mt-1 font-body">Override auto-detected URL (useful when behind a proxy)</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={lbl}>CWMP Username</label>
-                <input className={inp} value={settings?.cwmp_username || ""} onChange={(e) => set("cwmp_username", e.target.value)} data-testid="cwmp-username-input" />
+                <label className={lbl}>Global Fallback ACS Username</label>
+                <input className={inp} value={settings?.acs_username || ""} onChange={(e) => set("acs_username", e.target.value)} data-testid="cwmp-username-input" placeholder="acs" />
               </div>
               <div>
-                <label className={lbl}>CWMP Password</label>
-                <input className={inp} type="password" value={settings?.cwmp_password || ""} onChange={(e) => set("cwmp_password", e.target.value)} />
+                <label className={lbl}>Global Fallback ACS Password</label>
+                <input className={inp} type="password" value={settings?.acs_password || ""} onChange={(e) => set("acs_password", e.target.value)} placeholder="acs123" />
               </div>
             </div>
+            <p className="text-xs text-gray-400 font-body -mt-2">
+              Fallback credentials for routers not matched to any operator. Leave empty to reject unmatched connections.
+            </p>
             <div>
               <label className={lbl}>Inform Interval (seconds)</label>
               <input className={inp} type="number" min={60} max={3600} value={settings?.inform_interval || 300} onChange={(e) => set("inform_interval", parseInt(e.target.value))} data-testid="inform-interval-input" />
-              <p className="text-xs text-gray-400 mt-1 font-body">How often CPE devices should send periodic Inform messages (default: 300s)</p>
-            </div>
-            <div className="mt-4 p-4 border border-[#E6E8EB] bg-[#FAFBFC]">
-              <p className="text-xs font-semibold text-gray-600 mb-2 font-body">TR-069 CPE Configuration Template:</p>
-              <div className="terminal-output text-[11px]">{`[TR-069 ACS Settings]
-ACS URL: ${settings?.acs_url || "<YOUR_SERVER>/api/acs/cwmp"}
-Username: ${settings?.cwmp_username || "acs"}
-Password: ${settings?.cwmp_password ? "****" : "acs123"}
-Periodic Inform: Enable
-Inform Interval: ${settings?.inform_interval || 300}s`}</div>
+              <p className="text-xs text-gray-400 mt-1 font-body">How often CPE devices send Inform messages (300s = 5 min recommended)</p>
             </div>
           </div>
         )}

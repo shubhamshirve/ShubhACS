@@ -11,6 +11,11 @@ import {
   Buildings,
   Users,
   Key,
+  Eye,
+  EyeSlash,
+  ArrowsClockwise,
+  Copy,
+  Check,
 } from "@phosphor-icons/react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -21,10 +26,44 @@ const TABS = [
 ];
 
 function OperatorModal({ operator, onClose, onSuccess }) {
-  const [form, setForm] = useState(operator || { name: "", code: "", contact_email: "", contact_phone: "", address: "", is_active: true });
+  const genPassword = () => {
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!";
+    return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
+
+  const [form, setForm] = useState(
+    operator
+      ? { ...operator }
+      : { name: "", code: "", contact_email: "", contact_phone: "", address: "", is_active: true, acs_username: "", acs_password: genPassword() }
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPass, setShowPass] = useState(false);
+  const [copied, setCopied] = useState("");
+  const [acsUserEdited, setAcsUserEdited] = useState(!!operator?.acs_username);
+
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleCodeChange = (v) => {
+    const upper = v.toUpperCase();
+    setForm((f) => ({
+      ...f,
+      code: upper,
+      acs_username: acsUserEdited ? f.acs_username : upper.toLowerCase(),
+    }));
+  };
+
+  const handleAcsUserChange = (v) => {
+    setAcsUserEdited(true);
+    set("acs_username", v.toLowerCase().replace(/[^a-z0-9-_]/g, ""));
+  };
+
+  const copyToClipboard = (text, key) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(""), 2000);
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,16 +82,19 @@ function OperatorModal({ operator, onClose, onSuccess }) {
 
   const inp = "w-full border border-[#E6E8EB] px-3 py-2 text-sm focus:outline-none focus:border-[#002FA7] font-body";
   const lbl = "block text-xs uppercase tracking-[0.12em] font-semibold text-gray-500 mb-1 font-body";
+  const cwmpUrl = `${window.location.origin}/api/acs/cwmp`;
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-lg">
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white w-full max-w-lg my-4">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E6E8EB]">
           <h2 className="text-lg font-bold font-heading">{operator ? "Edit Operator" : "Add Operator"}</h2>
           <button onClick={onClose}><X size={18} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {error && <div className="p-3 border border-[#E52B20] bg-red-50 text-sm text-[#E52B20]">{error}</div>}
+
+          {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className={lbl}>Company Name *</label>
@@ -60,7 +102,7 @@ function OperatorModal({ operator, onClose, onSuccess }) {
             </div>
             <div>
               <label className={lbl}>Short Code *</label>
-              <input className={inp} value={form.code} onChange={(e) => set("code", e.target.value.toUpperCase())} required maxLength={10} placeholder="e.g. BSNL" data-testid="operator-code-input" />
+              <input className={inp} value={form.code} onChange={(e) => handleCodeChange(e.target.value)} required maxLength={10} placeholder="e.g. BSNL" data-testid="operator-code-input" />
             </div>
             <div>
               <label className={lbl}>Contact Email *</label>
@@ -82,6 +124,74 @@ function OperatorModal({ operator, onClose, onSuccess }) {
               <input className={inp} value={form.address} onChange={(e) => set("address", e.target.value)} />
             </div>
           </div>
+
+          {/* ACS Credentials */}
+          <div className="border-2 border-[#002FA7]/20 bg-blue-50/30 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Key size={14} className="text-[#002FA7]" />
+              <p className="text-xs uppercase tracking-[0.15em] font-bold text-[#002FA7] font-heading">Router ACS Credentials</p>
+            </div>
+            <p className="text-xs text-gray-500 font-body">Configure these in every router's CWMP settings under this operator. The ACS auto-assigns the router to this operator on first connect.</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={lbl}>ACS Username</label>
+                <input
+                  className={inp + " bg-white"}
+                  value={form.acs_username}
+                  onChange={(e) => handleAcsUserChange(e.target.value)}
+                  placeholder="auto from code"
+                />
+              </div>
+              <div>
+                <label className={lbl}>ACS Password</label>
+                <div className="flex gap-1">
+                  <div className="relative flex-1">
+                    <input
+                      className={inp + " bg-white pr-8"}
+                      type={showPass ? "text" : "password"}
+                      value={form.acs_password}
+                      onChange={(e) => set("acs_password", e.target.value)}
+                    />
+                    <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      onClick={() => setShowPass(!showPass)}>
+                      {showPass ? <EyeSlash size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  <button type="button" title="Regenerate password"
+                    className="px-2 border border-[#E6E8EB] bg-white hover:bg-gray-50 text-gray-500 hover:text-[#002FA7]"
+                    onClick={() => set("acs_password", genPassword())}>
+                    <ArrowsClockwise size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* CWMP Setup Reference Card */}
+            <div className="bg-[#0A0B0D] text-green-400 font-mono text-[11px] p-3 space-y-1.5 mt-1">
+              <p className="text-gray-400 text-[10px] uppercase tracking-wider mb-2">TP-Link / Any Router — CWMP Settings</p>
+              {[
+                { label: "CWMP", value: "Enable (toggle ON)" },
+                { label: "Inform", value: "Enable (toggle ON)" },
+                { label: "Inform Interval", value: "300  (seconds)" },
+                { label: "ACS URL", value: cwmpUrl, key: "url" },
+                { label: "ACS Username", value: form.acs_username || "<set code above>", key: "user" },
+                { label: "ACS Password", value: showPass ? (form.acs_password || "…") : "••••••••", key: "pass" },
+              ].map(({ label, value, key }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className="text-gray-500 w-32 shrink-0">{label}</span>
+                  <span className="text-green-300 flex-1 truncate">{value}</span>
+                  {key && (
+                    <button type="button" className="text-gray-600 hover:text-green-400 shrink-0"
+                      onClick={() => copyToClipboard(key === "url" ? cwmpUrl : key === "user" ? form.acs_username : form.acs_password, key)}>
+                      {copied === key ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-[#E6E8EB] hover:bg-gray-50 font-body">Cancel</button>
             <button type="submit" disabled={loading} className="px-6 py-2 text-sm bg-[#002FA7] text-white font-semibold hover:bg-[#0035C4] disabled:opacity-60 font-body" data-testid="operator-submit-btn">
@@ -283,7 +393,7 @@ export default function UserManagement() {
               <div className="overflow-x-auto">
                 <table className="data-table w-full">
                   <thead>
-                    <tr><th>Status</th><th>Operator</th><th>Code</th><th>Contact</th><th>Devices</th><th>Staff</th><th className="text-right">Actions</th></tr>
+                    <tr><th>Status</th><th>Operator</th><th>Code</th><th>ACS User</th><th>Devices</th><th>Staff</th><th className="text-right">Actions</th></tr>
                   </thead>
                   <tbody>
                     {operators.map((op) => (
@@ -299,7 +409,9 @@ export default function UserManagement() {
                           <p className="text-xs text-gray-400 font-body">{op.contact_email}</p>
                         </td>
                         <td><span className="font-mono text-xs font-bold text-[#002FA7]">{op.code}</span></td>
-                        <td><span className="text-xs font-body">{op.contact_phone || "—"}</span></td>
+                        <td>
+                          <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5">{op.acs_username || "—"}</span>
+                        </td>
                         <td><span className="text-xs font-mono font-bold">{op.device_count || 0}</span></td>
                         <td><span className="text-xs font-mono font-bold">{op.staff_count || 0}</span></td>
                         <td>

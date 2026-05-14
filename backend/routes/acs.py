@@ -1,5 +1,7 @@
 """
 ACS (Auto Configuration Server) endpoint supporting TR-069 (CWMP) and TR-369 (USP)
+Multi-operator: Each operator has a unique acs_username/acs_password.
+Routers set those credentials in their CWMP settings so devices auto-assign to the right operator.
 """
 from fastapi import APIRouter, Request, Response, HTTPException, Depends
 from pydantic import BaseModel
@@ -8,6 +10,7 @@ from typing import Optional
 import xml.etree.ElementTree as ET
 import logging
 import re
+import base64
 
 from database import get_db
 from auth_utils import get_current_user
@@ -86,12 +89,65 @@ def build_inform_response() -> str:
 </SOAP-ENV:Envelope>"""
 
 
+async def _resolve_operator_from_auth(request: Request, db) -> Optional[str]:
+    """
+    Parse HTTP Basic Auth from the router's CWMP request.
+    Match acs_username + acs_password against the operators collection.
+    Returns operator_id string if matched, None otherwise.
+    Falls back to global ACS credentials check.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Basic "):
+        return None
+
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        acs_user, acs_pass = decoded.split(":", 1)
+    except Exception:
+        return None
+
+    # 1. Try per-operator credentials first
+    op = await db.operators.find_one({
+        "acs_username": acs_user,
+        "acs_password": acs_pass,
+        "is_active": True,
+    })
+    if op:
+        logger.info(f"CWMP auth: matched operator '{op['name']}' ({op['code']})")
+        return str(op["_id"])
+
+    # 2. Fall back to global ACS credentials (for legacy / unassigned devices)
+    settings = await db.settings.find_one({"_id": "global"})
+    global_user = settings.get("acs_username", "acs") if settings else "acs"
+    global_pass = settings.get("acs_password", "acs123") if settings else "acs123"
+    if acs_user == global_user and acs_pass == global_pass:
+        logger.info("CWMP auth: matched global fallback credentials (unassigned)")
+        return None  # None = unassigned, but accepted
+
+    # 3. No match at all — reject
+    logger.warning(f"CWMP auth: unknown credentials user='{acs_user}'")
+    return "UNAUTHORIZED"
+
+
 @router.post("/cwmp")
 async def cwmp_endpoint(request: Request):
-    """TR-069 CWMP ACS endpoint - routers connect here"""
+    """TR-069 CWMP ACS endpoint — routers connect here.
+    ACS Username in the router CWMP settings identifies the operator.
+    """
     db = get_db()
     body = await request.body()
     body_str = body.decode("utf-8", errors="replace")
+
+    # --- Multi-operator auth ---
+    operator_id_result = await _resolve_operator_from_auth(request, db)
+    if operator_id_result == "UNAUTHORIZED":
+        return Response(
+            content="Unauthorized",
+            status_code=401,
+            media_type="text/plain",
+            headers={"WWW-Authenticate": 'Basic realm="ACS"'},
+        )
+    operator_id = operator_id_result  # None = global/unassigned, str = specific operator
 
     if not body_str.strip():
         return Response(content="", status_code=204)
@@ -114,6 +170,10 @@ async def cwmp_endpoint(request: Request):
                 update["ip_address"] = device_data["ip_address"]
             if device_data.get("uptime"):
                 update["uptime"] = device_data["uptime"]
+            # Auto-assign operator if device currently has none and we identified one
+            if operator_id and not existing.get("operator_id"):
+                update["operator_id"] = operator_id
+                logger.info(f"CWMP: Auto-assigned existing device {serial} to operator {operator_id}")
             await db.devices.update_one({"serial_number": serial}, {"$set": update})
             logger.info(f"TR-069 Inform: Updated device {serial}")
         else:
@@ -128,7 +188,7 @@ async def cwmp_endpoint(request: Request):
                 "mac_address": device_data.get("mac_address", ""),
                 "protocol": "tr069",
                 "status": "online",
-                "operator_id": None,
+                "operator_id": operator_id,  # Auto-assigned from ACS credentials
                 "last_seen": now,
                 "created_at": now,
                 "provision_code": serial[:8].upper(),
@@ -138,7 +198,8 @@ async def cwmp_endpoint(request: Request):
                 "auto_discovered": True,
             }
             await db.devices.insert_one(new_device)
-            logger.info(f"TR-069 Inform: Auto-registered new device {serial}")
+            op_info = f"operator {operator_id}" if operator_id else "unassigned"
+            logger.info(f"TR-069 Inform: Auto-registered new device {serial} → {op_info}")
 
     return Response(
         content=build_inform_response(),
@@ -155,6 +216,8 @@ class USPRegister(BaseModel):
     ip_address: str = ""
     mac_address: str = ""
     endpoint_id: str = ""
+    acs_username: str = ""   # operator acs_username for auto-assignment
+    acs_password: str = ""
 
 
 @router.post("/usp/register")
@@ -162,6 +225,18 @@ async def usp_register(data: USPRegister):
     """TR-369 USP device registration endpoint"""
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
+
+    # Resolve operator from credentials
+    operator_id = None
+    if data.acs_username and data.acs_password:
+        op = await db.operators.find_one({
+            "acs_username": data.acs_username,
+            "acs_password": data.acs_password,
+            "is_active": True,
+        })
+        if op:
+            operator_id = str(op["_id"])
+
     existing = await db.devices.find_one({"serial_number": data.serial_number})
 
     if existing:
@@ -174,6 +249,8 @@ async def usp_register(data: USPRegister):
             val = getattr(data, field, None)
             if val:
                 update[field] = val
+        if operator_id and not existing.get("operator_id"):
+            update["operator_id"] = operator_id
         await db.devices.update_one({"serial_number": data.serial_number}, {"$set": update})
         return {"status": "updated", "serial": data.serial_number}
     else:
@@ -189,7 +266,7 @@ async def usp_register(data: USPRegister):
             "endpoint_id": data.endpoint_id,
             "protocol": "tr369",
             "status": "online",
-            "operator_id": None,
+            "operator_id": operator_id,
             "last_seen": now,
             "created_at": now,
             "provision_code": data.serial_number[:8].upper(),

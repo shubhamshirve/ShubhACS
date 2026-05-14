@@ -17,8 +17,8 @@ class GlobalSettings(BaseModel):
     tr069_enabled: bool = True
     tr369_enabled: bool = True
     acs_url: str = ""
-    cwmp_username: str = "acs"
-    cwmp_password: str = "acs123"
+    acs_username: str = "acs"       # global fallback ACS credential (for unassigned devices)
+    acs_password: str = "acs123"    # global fallback ACS credential
     inform_interval: int = 300
 
 
