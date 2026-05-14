@@ -1,0 +1,43 @@
+# ============================================================
+# ACS Server — Caddyfile
+# Caddy auto-manages SSL certificates via Let's Encrypt.
+#
+# ACS_HOST is set from .env:
+#   Domain  → auto HTTPS:  ACS_HOST=acs.mycompany.com
+#   IP only → plain HTTP:  ACS_HOST=:80
+# ============================================================
+
+{$ACS_HOST} {
+
+    # Gzip compression
+    encode gzip
+
+    # Proxy all /api/* requests to the FastAPI backend
+    handle /api/* {
+        reverse_proxy backend:8001 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Proxy everything else to the React frontend (served by nginx)
+    handle {
+        reverse_proxy frontend:80 {
+            header_up Host {host}
+        }
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    # Logging
+    log {
+        output stdout
+        level INFO
+    }
+}

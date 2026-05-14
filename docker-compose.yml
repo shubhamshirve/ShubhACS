@@ -1,17 +1,22 @@
 version: '3.9'
 
 services:
-  # ── MongoDB ──────────────────────────────────────────────────────────────
+
+  # ── MongoDB ─────────────────────────────────────────────────────────────────
   mongo:
     image: mongo:7
     container_name: acs_mongo
-    ports:
-      - "${MONGO_PORT:-27017}:27017"
+    # Port not exposed externally for security.
+    # To access MongoDB directly from host: uncomment the line below.
+    # ports:
+    #   - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo_data:/data/db
     environment:
       MONGO_INITDB_DATABASE: ${DB_NAME:-acs_server_db}
     restart: unless-stopped
+    networks:
+      - acs_net
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -19,27 +24,33 @@ services:
       retries: 5
       start_period: 20s
 
-  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: acs_backend
-    ports:
-      - "${BACKEND_PORT:-8001}:8001"
+    # Port not exposed externally — accessed via Caddy only.
+    # To access the API directly from host: uncomment the line below.
+    # ports:
+    #   - "${BACKEND_PORT:-8001}:8001"
+    expose:
+      - "8001"
     environment:
       MONGO_URL: mongodb://mongo:27017
       DB_NAME: ${DB_NAME:-acs_server_db}
-      JWT_SECRET: ${JWT_SECRET:-change-this-in-production-use-a-long-random-string}
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@acsserver.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
       FRONTEND_URL: ${ACS_PUBLIC_URL:-http://localhost}
       EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
       mongo:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - acs_net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 15s
@@ -47,22 +58,55 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── React Frontend (nginx) ────────────────────────────────────────────────
+  # ── React Frontend (nginx, internal only) ───────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Empty string = relative URLs; nginx proxies /api → backend
+        # Empty string = relative URLs (/api/...) — Caddy handles routing
         REACT_APP_BACKEND_URL: ""
     container_name: acs_frontend
-    ports:
-      - "${HTTP_PORT:-80}:80"
+    expose:
+      - "80"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - acs_net
+
+  # ── Caddy (HTTPS reverse proxy) ─────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: acs_caddy
+    ports:
+      - "80:80"          # HTTP (and HTTPS redirect)
+      - "443:443"        # HTTPS
+      - "443:443/udp"    # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # TLS certificates (persisted)
+      - caddy_config:/config      # Caddy internal config
+    environment:
+      # ACS_DOMAIN=acs.mycompany.com  → Caddy auto-gets SSL cert
+      # ACS_DOMAIN=               (empty) → plain HTTP on port 80
+      ACS_HOST: ${ACS_DOMAIN:-:80}
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    networks:
+      - acs_net
 
 volumes:
   mongo_data:
     name: acs_mongo_data
+  caddy_data:
+    name: acs_caddy_data
+  caddy_config:
+    name: acs_caddy_config
+
+networks:
+  acs_net:
+    name: acs_network
+    driver: bridge
