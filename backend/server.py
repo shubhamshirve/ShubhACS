@@ -11,6 +11,7 @@ from pathlib import Path
 
 from database import init_db, get_db
 from auth_utils import hash_password, verify_password
+from pymongo.errors import DuplicateKeyError
 
 from routes.auth import router as auth_router
 from routes.operators import router as operators_router
@@ -69,8 +70,8 @@ async def health():
 async def startup():
     await init_db()
     db = get_db()
-    await seed_data(db)
     await create_indexes(db)
+    await seed_data(db)
     logger.info("ACS Server started successfully")
 
 
@@ -79,17 +80,20 @@ async def seed_data(db):
     admin_password = os.environ.get("ADMIN_PASSWORD", "Admin@123")
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
-        await db.users.insert_one({
-            "_id": str(uuid.uuid4()),
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
-            "name": "Super Admin",
-            "role": "super_admin",
-            "operator_id": None,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        logger.info(f"Super admin seeded: {admin_email}")
+        try:
+            await db.users.insert_one({
+                "_id": str(uuid.uuid4()),
+                "email": admin_email,
+                "password_hash": hash_password(admin_password),
+                "name": "Super Admin",
+                "role": "super_admin",
+                "operator_id": None,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(f"Super admin seeded: {admin_email}")
+        except DuplicateKeyError:
+            logger.info(f"Super admin already seeded by another worker: {admin_email}")
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one(
             {"email": admin_email},
@@ -99,19 +103,22 @@ async def seed_data(db):
     existing_settings = await db.settings.find_one({"_id": "global"})
     if not existing_settings:
         backend_url = os.environ.get("FRONTEND_URL", "https://analyze-app-8.preview.emergentagent.com")
-        await db.settings.insert_one({
-            "_id": "global",
-            "ai_enabled": False,
-            "gemini_api_key": "",
-            "speed_test_enabled": True,
-            "diagnostics_enabled": True,
-            "tr069_enabled": True,
-            "tr369_enabled": True,
-            "acs_url": f"{backend_url}/api/acs/cwmp",
-            "cwmp_username": "acs",
-            "cwmp_password": "acs123",
-            "inform_interval": 300,
-        })
+        try:
+            await db.settings.insert_one({
+                "_id": "global",
+                "ai_enabled": False,
+                "gemini_api_key": "",
+                "speed_test_enabled": True,
+                "diagnostics_enabled": True,
+                "tr069_enabled": True,
+                "tr369_enabled": True,
+                "acs_url": f"{backend_url}/api/acs/cwmp",
+                "cwmp_username": "acs",
+                "cwmp_password": "acs123",
+                "inform_interval": 300,
+            })
+        except DuplicateKeyError:
+            pass
 
     count = await db.router_models.count_documents({})
     if count == 0:
@@ -140,8 +147,11 @@ async def seed_data(db):
             m["_id"] = str(uuid.uuid4())
             m["created_at"] = now_iso
             m["notes"] = ""
-        await db.router_models.insert_many(sample_models)
-        logger.info(f"Seeded {len(sample_models)} router models")
+        try:
+            await db.router_models.insert_many(sample_models)
+            logger.info(f"Seeded {len(sample_models)} router models")
+        except DuplicateKeyError:
+            pass
 
     import os as _os
     _os.makedirs("/app/memory", exist_ok=True)

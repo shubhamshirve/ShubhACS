@@ -90,6 +90,12 @@ Create a SaaS ACS Server which supports all Indian routers and provides configur
 - Syrotech SY-GPON-1110-WDONT (BSNL/MTNL)
 - Tenda HG9, ASUS DSL-AC68U, Mikrotik RB951
 
+### Reliability & Deployment Updates (May 2026 - v1.2)
+- ✅ Fully Dockerized local and production stack via `docker-compose` using MongoDB 7.0 + Caddy 2.
+- ✅ Resolved missing `yarn.lock` build errors in React Frontend container by streamlining Yarn dependencies dynamically.
+- ✅ Fixed severe startup race condition in FastAPI Backend by migrating database index creation ahead of parallel seed logic, making backend fully scalable to multiple Workers.
+- ✅ Graceful handling of Starlette lifespan concurrency (`DuplicateKeyError` trapping) for robust Docker swarm / scale deployments.
+
 ## Prioritized Backlog
 
 ### P0 (Critical - Next Phase)
