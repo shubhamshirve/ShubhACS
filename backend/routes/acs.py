@@ -15,6 +15,7 @@ import base64
 from database import get_db
 from auth_utils import get_current_user
 from utils import new_id
+from crypto_utils import decrypt_value
 
 router = APIRouter(prefix="/acs", tags=["acs"])
 logger = logging.getLogger(__name__)
@@ -106,15 +107,19 @@ async def _resolve_operator_from_auth(request: Request, db) -> Optional[str]:
     except Exception:
         return None
 
-    # 1. Try per-operator credentials first
+    # 1. Try per-operator credentials — query by username, then verify decrypted password
     op = await db.operators.find_one({
         "acs_username": acs_user,
-        "acs_password": acs_pass,
         "is_active": True,
     })
     if op:
-        logger.info(f"CWMP auth: matched operator '{op['name']}' ({op['code']})")
-        return str(op["_id"])
+        stored_pass = decrypt_value(op.get("acs_password", ""))
+        if stored_pass == acs_pass:
+            logger.info(f"CWMP auth: matched operator '{op['name']}' ({op['code']})")
+            return str(op["_id"])
+        # Username matched but password wrong — fall through to reject
+        logger.warning(f"CWMP auth: wrong password for operator '{op.get('name', acs_user)}'")
+        return "UNAUTHORIZED"
 
     # 2. Fall back to global ACS credentials (for legacy / unassigned devices)
     settings = await db.settings.find_one({"_id": "global"})

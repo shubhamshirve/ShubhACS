@@ -7,9 +7,11 @@ from database import get_db
 from auth_utils import (
     hash_password, verify_password,
     create_access_token, create_refresh_token,
-    set_auth_cookies, get_current_user, get_jwt_secret, JWT_ALGORITHM
+    set_auth_cookies, get_current_user, get_jwt_secret, JWT_ALGORITHM,
+    _secure_cookies,
 )
 from utils import find_by_id
+from rate_limiter import is_rate_limited, clear_attempts
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -25,7 +27,16 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/login")
-async def login(data: LoginRequest, response: Response):
+async def login(data: LoginRequest, request: Request, response: Response):
+    # --- Brute-force protection: 10 attempts per IP per 60 seconds ---
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"login:{client_ip}"
+    if is_rate_limited(rate_key, max_attempts=10, window_seconds=60):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait 60 seconds and try again.",
+        )
+
     db = get_db()
     email = data.email.lower().strip()
     user = await db.users.find_one({"email": email})
@@ -33,6 +44,9 @@ async def login(data: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is disabled")
+
+    # Successful login — clear any accumulated attempt counter
+    clear_attempts(rate_key)
 
     user_id = str(user["_id"])
     operator_id = user.get("operator_id")
@@ -80,7 +94,7 @@ async def refresh_token(request: Request, response: Response):
         )
         response.set_cookie(
             "access_token", access_token, httponly=True,
-            secure=False, samesite="lax", max_age=28800, path="/"
+            secure=_secure_cookies(), samesite="lax", max_age=28800, path="/"
         )
         return {"message": "Token refreshed"}
     except jwt.InvalidTokenError:
