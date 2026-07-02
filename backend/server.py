@@ -102,7 +102,7 @@ async def seed_data(db):
 
     existing_settings = await db.settings.find_one({"_id": "global"})
     if not existing_settings:
-        backend_url = os.environ.get("FRONTEND_URL", "https://analyze-app-8.preview.emergentagent.com")
+        backend_url = os.environ.get("FRONTEND_URL", "https://tr069-config.preview.emergentagent.com")
         try:
             await db.settings.insert_one({
                 "_id": "global",

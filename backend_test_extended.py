@@ -6,7 +6,7 @@ Extended Backend API Testing - Test real-time polling with actual device data
 import requests
 import json
 
-BASE_URL = "https://analyze-app-8.preview.emergentagent.com/api"
+BASE_URL = "https://tr069-config.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@acsserver.com"
 ADMIN_PASSWORD = "Admin@123"
 

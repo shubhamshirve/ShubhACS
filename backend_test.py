@@ -11,7 +11,7 @@ import sys
 import os
 
 # Get base URL from environment
-BASE_URL = "https://analyze-app-8.preview.emergentagent.com/api"
+BASE_URL = "https://tr069-config.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@acsserver.com"
