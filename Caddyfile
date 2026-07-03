@@ -1,18 +1,18 @@
-# ============================================================
-# ACS Server — Caddyfile
-# Caddy auto-manages SSL certificates via Let's Encrypt.
-#
-# ACS_HOST is set from .env:
-#   Domain  → auto HTTPS:  ACS_HOST=acs.mycompany.com
-#   IP only → plain HTTP:  ACS_HOST=:80
-# ============================================================
+# ─────────────────────────────────────────────────────────────
+# Caddyfile — ACS Server reverse proxy
+# Handles: static frontend + /api/* → backend
+# ─────────────────────────────────────────────────────────────
+# For local Docker deployment use port 80:
+#   http://localhost
+# For production with automatic TLS use your domain:
+#   your-domain.com
+# ─────────────────────────────────────────────────────────────
 
-{$ACS_HOST} {
+:80 {
+    # Serve React build from /srv
+    root * /srv
 
-    # Gzip compression
-    encode gzip
-
-    # Proxy all /api/* requests to the FastAPI backend
+    # Proxy all /api/* requests to FastAPI backend
     handle /api/* {
         reverse_proxy backend:8001 {
             header_up X-Real-IP {remote_host}
@@ -21,23 +21,27 @@
         }
     }
 
-    # Proxy everything else to the React frontend (served by nginx)
+    # Serve static files; fallback to index.html for SPA routing
     handle {
-        reverse_proxy frontend:80 {
-            header_up Host {host}
-        }
+        try_files {path} /index.html
+        file_server
     }
 
     # Security headers
     header {
-        X-Content-Type-Options nosniff
-        X-Frame-Options SAMEORIGIN
-        Referrer-Policy strict-origin-when-cross-origin
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
     }
 
-    # Logging
+    # Compress responses
+    encode gzip
+
     log {
         output stdout
-        level INFO
+        format console
+        level WARN
     }
 }

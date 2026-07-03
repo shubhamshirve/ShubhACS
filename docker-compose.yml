@@ -1,114 +1,109 @@
 version: '3.9'
 
+# ─────────────────────────────────────────────────────────────
+# ACS Server — Docker Compose
+# Optimised for 1 GB RAM deployment
+# ─────────────────────────────────────────────────────────────
+# Before first run on a new host:
+#   sudo ./scripts/setup-swap.sh    # creates 1 GB swap file
+#   cp .env.example .env            # fill in secrets
+#   docker compose up -d
+# ─────────────────────────────────────────────────────────────
+
 services:
 
-  # ── MongoDB ─────────────────────────────────────────────────────────────────
+  # ── MongoDB ─────────────────────────────────────────────────
   mongo:
-    image: mongo:7
-    container_name: acs_mongo
-    # Port not exposed externally for security.
-    # To access MongoDB directly from host: uncomment the line below.
-    # ports:
-    #   - "${MONGO_PORT:-27017}:27017"
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: acs_server_db
+    command:
+      # Limit WiredTiger cache to 256 MB — critical for 1 GB hosts
+      - "mongod"
+      - "--wiredTigerCacheSizeGB=0.25"
+      - "--quiet"
+      - "--logpath=/dev/null"
     volumes:
       - mongo_data:/data/db
-    environment:
-      MONGO_INITDB_DATABASE: ${DB_NAME:-acs_server_db}
-    restart: unless-stopped
     networks:
       - acs_net
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ping:1})", "--quiet"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 30s
 
-  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  # ── Backend (FastAPI) ────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: acs_backend
-    # Port not exposed externally — accessed via Caddy only.
-    # To access the API directly from host: uncomment the line below.
-    # ports:
-    #   - "${BACKEND_PORT:-8001}:8001"
-    expose:
-      - "8001"
+    restart: unless-stopped
+    env_file: .env
     environment:
       MONGO_URL: mongodb://mongo:27017
-      DB_NAME: ${DB_NAME:-acs_server_db}
-      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@acsserver.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@123}
-      FRONTEND_URL: ${ACS_PUBLIC_URL:-http://localhost}
-      EMERGENT_LLM_KEY: ${EMERGENT_LLM_KEY:-}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-      # Set to 'true' when deploying behind HTTPS (e.g. with a domain + Caddy SSL)
-      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      DB_NAME: acs_server_db
+      CORS_ORIGINS: ""
     depends_on:
       mongo:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - acs_net
+    ports:
+      - "127.0.0.1:8001:8001"   # expose only on loopback; Caddy proxies externally
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
-      interval: 15s
-      timeout: 5s
+      test: ["CMD", "wget", "-qO-", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 20s
 
-  # ── React Frontend (nginx, internal only) ───────────────────────────────────
+  # ── Frontend + Caddy reverse proxy ──────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Empty string = relative URLs (/api/...) — Caddy handles routing
+        # Empty = relative URLs (/api/...) — Caddy routes them to backend
         REACT_APP_BACKEND_URL: ""
-    container_name: acs_frontend
-    expose:
-      - "80"
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       backend:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - acs_net
-
-  # ── Caddy (HTTPS reverse proxy) ─────────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    container_name: acs_caddy
-    ports:
-      - "80:80"          # HTTP (and HTTPS redirect)
-      - "443:443"        # HTTPS
-      - "443:443/udp"    # HTTP/3 (QUIC)
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data          # TLS certificates (persisted)
-      - caddy_config:/config      # Caddy internal config
-    environment:
-      # ACS_DOMAIN=acs.mycompany.com  → Caddy auto-gets SSL cert
-      # ACS_DOMAIN=               (empty) → plain HTTP on port 80
-      ACS_HOST: ${ACS_DOMAIN:-:80}
-    depends_on:
-      - frontend
-    restart: unless-stopped
-    networks:
-      - acs_net
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+        reservations:
+          memory: 16M
 
 volumes:
   mongo_data:
-    name: acs_mongo_data
   caddy_data:
-    name: acs_caddy_data
   caddy_config:
-    name: acs_caddy_config
 
 networks:
   acs_net:
-    name: acs_network
     driver: bridge

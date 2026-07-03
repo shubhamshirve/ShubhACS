@@ -1,27 +1,41 @@
-# Stage 1: Build React app
+# ─────────────────────────────────────────────────────────────
+# Stage 1: Build React app with pnpm (fast, disk-efficient)
+# ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
+
+# Install pnpm globally
+RUN npm install -g pnpm
 
 WORKDIR /app
 
+# Copy manifests first for cache optimisation
 COPY package.json ./
-RUN yarn install --network-timeout 300000
+# Use pnpm-lock.yaml if it exists, otherwise fallback to yarn.lock
+RUN if [ -f pnpm-lock.yaml ]; then \
+        pnpm install --frozen-lockfile; \
+    elif [ -f yarn.lock ]; then \
+        pnpm import && pnpm install --frozen-lockfile; \
+    else \
+        pnpm install; \
+    fi
 
 COPY . .
 
-# Empty string → relative URLs → nginx proxy handles /api routing
+# Build arg for backend URL (empty = relative URLs via Caddy proxy)
 ARG REACT_APP_BACKEND_URL=""
 ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
-ENV GENERATE_SOURCEMAP=false
-ENV NODE_ENV=production
 
-RUN yarn build
+# Disable CRA telemetry
+ENV DISABLE_ESLINT_PLUGIN=true CI=false
 
-# Stage 2: Serve with nginx
-FROM nginx:1.25-alpine
+RUN pnpm build
 
-COPY --from=builder /app/build /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# ─────────────────────────────────────────────────────────────
+# Stage 2: Serve with Caddy (tiny, fast, automatic HTTPS)
+# ─────────────────────────────────────────────────────────────
+FROM caddy:2-alpine
 
-EXPOSE 80
+COPY --from=builder /app/build /srv
+COPY Caddyfile /etc/caddy/Caddyfile
 
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 80 443
