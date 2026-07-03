@@ -22,6 +22,7 @@ from routes.settings import router as settings_router
 from routes.router_models import router as router_models_router
 from routes.stats import router as stats_router
 from routes.acs import router as acs_router
+from routes.tasks import router as tasks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(router_models_router, prefix=API_PREFIX)
 app.include_router(stats_router, prefix=API_PREFIX)
 app.include_router(acs_router, prefix=API_PREFIX)
+app.include_router(tasks_router, prefix=API_PREFIX)
 
 
 @app.get("/api/health")
@@ -184,6 +186,11 @@ async def create_indexes(db):
     await db.diagnostics.create_index("device_id")
     await db.diagnostics.create_index("created_at")
     await db.operators.create_index("code", unique=True)
+    # CWMP task queue indexes
+    await db.cwmp_tasks.create_index("device_id")
+    await db.cwmp_tasks.create_index("status")
+    await db.cwmp_tasks.create_index("serial_number")
+    await db.cwmp_tasks.create_index([("device_id", 1), ("status", 1)])
 
 
 @app.on_event("shutdown")
